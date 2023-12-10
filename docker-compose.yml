@@ -1,0 +1,129 @@
+version: '3.9'
+
+services:
+  jobmanager:
+    build: ./flink_client
+    image: pyflink/pyflink:1.16-scala_2.12
+    hostname: "jobmanager"
+    expose:
+      - "6123"
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        jobmanager.memory.process.size: 1g
+        jobmanager.memory.jvm-metaspace.size: 256m
+        taskmanager.numberOfTaskSlots: 8
+        taskmanager.memory.jvm-metaspace.size: 1g
+    volumes:
+      - ./flink_client/:/opt/sql-client/
+      - ./flink_cp/:/opt/flink_cp/
+  taskmanager:
+    image: pyflink/pyflink:1.16-scala_2.12
+    expose:
+      - "6121"
+      - "6122"
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    links:
+      - jobmanager:jobmanager
+    volumes:
+      - ./flink_cp/:/opt/flink_cp/
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        taskmanager.memory.process.size: 5g
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 8
+        taskmanager.memory.jvm-metaspace.size: 1g
+  mysql:
+    image: mysql:8.0
+    restart: always
+    container_name: mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD
+      - MYSQL_DATABASE
+      - MYSQL_USER
+      - MYSQL_PASSWORD
+    ports:
+      - 3306:3306
+    volumes:
+      - /root/docker-compose/mysql/data:/var/lib/mysql
+      - /root/docker-compose/mysql/config/my.cnf:/etc/mysql/my.cnf
+    command:
+      --max_connections=1000
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --default-authentication-plugin=mysql_native_password
+  starrocks-fe:
+    image: starrocks/fe-ubuntu:latest
+    hostname: starrocks-fe
+    container_name: starrocks-fe
+    #user: root
+    command: /opt/starrocks/fe/bin/start_fe.sh
+    ports:
+      - 1030:8030
+      - 2020:9020
+      - 3030:9030
+    # volumes:
+    #   - ../../conf/fe.conf:/opt/starrocks/fe/conf/fe.conf
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9030"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  starrocks-be1:
+    image: starrocks/be-ubuntu:latest
+    #user: root
+    command:
+      - /bin/bash
+      - -c
+      - |
+        sleep 15s; mysql --connect-timeout 2 -h starrocks-fe -P9030 -uroot -e "alter system add backend \"starrocks-be1:9050\";"
+        /opt/starrocks/be/bin/start_be.sh 
+
+    hostname: starrocks-be1
+    container_name: starrocks-be1
+    depends_on:
+      - "starrocks-fe"
+#    volumes:
+#      - path/of/host/be.conf:/opt/starrocks/be/conf/be.conf
+#      - path/of/host/starrocks-be1/storage:/opt/starrocks/be/storage
+  starrocks-be2:
+    image: starrocks/be-ubuntu:latest
+    #user: root
+    command:
+      - /bin/bash
+      - -c
+      - |
+        sleep 15s;  mysql --connect-timeout 2 -h starrocks-fe -P9030 -uroot -e "alter system add backend \"starrocks-be2:9050\";"
+        /opt/starrocks/be/bin/start_be.sh 
+
+    hostname: starrocks-be2
+    container_name: starrocks-be2
+    depends_on:
+      - "starrocks-fe"
+#    volumes:
+#      - path/of/host/be.conf:/opt/starrocks/be/conf/be.conf
+#      - path/of/host/starrocks-be2/storage:/opt/starrocks/be/storage
+  starrocks-be3:
+    image: starrocks/be-ubuntu:latest
+    #user: root
+    command:
+      - /bin/bash
+      - -c
+      - |
+        sleep 15s; mysql --connect-timeout 2 -h starrocks-fe -P9030 -uroot -e "alter system add backend \"starrocks-be3:9050\";"
+        /opt/starrocks/be/bin/start_be.sh 
+
+    hostname: starrocks-be3
+    container_name: starrocks-be3
+    depends_on:
+      - "starrocks-fe"
+#    volumes:
+#      - path/of/host/be.conf:/opt/starrocks/be/conf/be.conf
+#      - path/of/host/starrocks-be3/storage:/opt/starrocks/be/storage
